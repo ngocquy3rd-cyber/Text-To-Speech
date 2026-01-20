@@ -64,9 +64,8 @@ function getSmartApiKey(): string {
   return pickedKey;
 }
 
-const ABSOLUTE_MAX_CHARS = 300;
+const ABSOLUTE_MAX_CHARS = 250; // Giảm xuống để đảm bảo đọc ổn định hơn
 
-// 8 GIỌNG NEWS NỮ MỸ CHUYÊN NGHIỆP
 const NEWS_PERSONAS = [
   { id: 'Kore', name: 'Elite Anchor (Fast)', style: 'High energy, fast-paced breaking news.', rate: "1.15" },
   { id: 'Zephyr', name: 'Prime Time News', style: 'Steady, authoritative, deep resonance.', rate: "1.02" },
@@ -85,9 +84,10 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
     
     sentences.forEach((sentence, index) => {
         let processedSentence = sentence.trim();
-        if (Math.random() < (settings.stutterRate / 100)) {
+        // Giảm xác suất stutter để tránh làm nhiễu mô hình khi đọc từ khó
+        if (Math.random() < (settings.stutterRate / 200)) { 
             const words = processedSentence.split(' ');
-            if (words.length > 2) {
+            if (words.length > 3) {
                 const idx = Math.floor(Math.random() * Math.min(words.length, 3));
                 words[idx] = `${words[idx]}... ${words[idx]}`;
                 processedSentence = words.join(' ');
@@ -96,22 +96,22 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
         
         const speedRange = settings.speedVariation / 100;
         const baseRate = parseFloat(personaRate);
-        const randomSpeed = (baseRate + (Math.random() * speedRange * 0.4 - (speedRange * 0.2))).toFixed(2);
+        const randomSpeed = (baseRate + (Math.random() * speedRange * 0.2 - (speedRange * 0.1))).toFixed(2);
         
-        let extraTag = '';
+        let pause = "";
         if (index > 0) {
-            let waitTime = settings.waitDuration === 'long' ? 1000 : (settings.waitDuration === 'random' ? Math.floor(Math.random() * 800 + 200) : 400);
-            extraTag = `<break time="${waitTime}ms"/>`;
+            let waitTime = settings.waitDuration === 'long' ? 1000 : (settings.waitDuration === 'random' ? Math.floor(Math.random() * 600 + 200) : 400);
+            pause = `<break time="${waitTime}ms"/>`;
         }
         
-        richSSML += `${extraTag}<prosody volume="medium" rate="${randomSpeed}">${processedSentence}</prosody>`;
+        // Sử dụng thẻ prosody bao quanh chặt chẽ để buộc đọc nội dung
+        richSSML += `${pause}<prosody volume="medium" rate="${randomSpeed}">${processedSentence}</prosody>`;
         plainSynthesized += (plainSynthesized ? " " : "") + processedSentence;
     });
     richSSML += `</speak>`;
     return { ssml: richSSML, plain: plainSynthesized };
 }
 
-// FIX: Corrected argument types to resolve "Argument of type... is not assignable to parameter of type 'BioSettings'"
 async function processWithRetry(
   chunk: string, 
   persona: typeof NEWS_PERSONAS[0], 
@@ -119,7 +119,10 @@ async function processWithRetry(
   settings: BioSettings
 ): Promise<{ index: number; audio: Uint8Array; metadata: AudioChunkMetadata } | null> {
     const humanized = humanizeText(chunk, settings, persona.rate);
-    const systemPrompt = `PERFORM AS: ${persona.name}. STYLE: ${persona.style}. BREATHING: ${settings.breathIntensity}. TEXT: ${humanized.ssml}`;
+    // Nhấn mạnh việc đọc 100% văn bản
+    const systemPrompt = `ACT AS: ${persona.name}. STYLE: ${persona.style}. 
+    MANDATORY: Pronounce 100% of the words provided in the SSML. Do NOT skip, summarize, or edit any words. 
+    TEXT TO SPEAK: ${humanized.ssml}`;
 
     const MAX_ATTEMPTS = 5;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -146,14 +149,14 @@ async function processWithRetry(
         return {
           index,
           audio: audioBytes,
-          metadata: { text: humanized.plain, durationMs: (audioBytes.length / 48000) * 1000 }
+          metadata: { text: chunk, durationMs: (audioBytes.length / 48000) * 1000 }
         };
       } catch (error: any) {
         const errorMsg = error?.message || "";
         if (errorMsg.includes("429") || errorMsg.includes("quota")) {
             FAILED_KEYS.add(currentApiKey);
         }
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
     return null;
@@ -169,7 +172,8 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
     const res = await processWithRetry(chunks[i], persona, i, params.settings);
     if (res) results.push(res);
     if (params.onProgress) params.onProgress(Math.round(((i + 1) / chunks.length) * 100));
-    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 600));
+    // Tăng thời gian chờ một chút để ổn định kết nối
+    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 800));
   }
 
   if (results.length === 0) throw new Error("Không thể tạo dữ liệu âm thanh.");
@@ -191,6 +195,7 @@ function splitTextIntoSpeakerTurns(text: string): string[] {
     sentences.forEach(s => {
         const trimmedS = s.trim();
         if (!trimmedS) return;
+        // Kiểm tra độ dài nghiêm ngặt hơn
         if ((currentChunk.length + trimmedS.length > ABSOLUTE_MAX_CHARS) && currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
             currentChunk = trimmedS;
