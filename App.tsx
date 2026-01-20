@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { generateSpeech, BioSettings } from './services/geminiService';
 import { createMp3Blob, createSrtBlob, createZipBlob } from './utils/audioUtils';
 
@@ -14,11 +14,21 @@ const downloadFile = (blob: Blob, fileName: string) => {
   document.body.removeChild(a);
 };
 
+interface ProductionResult {
+  mp3Blob: Blob;
+  srtBlob: Blob;
+  charCount: number;
+  durationStr: string;
+  generationTime: string;
+  timestamp: string;
+}
+
 const App: React.FC = () => {
   const [text, setText] = useState("Good evening. Our top story tonight: Artificial Intelligence continues to redefine the boundaries of synthetic media. From professional newsrooms in Washington to broadcast centers across the globe, high-fidelity voice synthesis is providing a glimpse into the future of digital communication.");
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [result, setResult] = useState<ProductionResult | null>(null);
   
   const [bioSettings, setBioSettings] = useState<BioSettings>({
     stutterRate: 35,       
@@ -32,47 +42,69 @@ const App: React.FC = () => {
   });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const notifyAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
     setIsGenerating(true);
     setProgress(0);
     setErrorMsg(null);
+    setResult(null);
+    const startTime = performance.now();
     
     try {
-      const result = await generateSpeech({
+      const speechResult = await generateSpeech({
         text,
         isSSML: false,
         settings: bioSettings,
         onProgress: (p) => setProgress(p)
       });
       
-      const mp3Blob = createMp3Blob(result.audioData);
-      const srtBlob = createSrtBlob(result.metadata);
+      const endTime = performance.now();
+      const generationTimeSec = ((endTime - startTime) / 1000).toFixed(1);
       
+      const mp3Blob = createMp3Blob(speechResult.audioData);
+      const srtBlob = createSrtBlob(speechResult.metadata);
+      
+      // Tính toán độ dài âm thanh
+      const totalMs = speechResult.metadata.reduce((acc, m) => acc + m.durationMs, 0);
+      const mins = Math.floor(totalMs / 60000);
+      const secs = Math.floor((totalMs % 60000) / 1000);
+      const durationStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+
       const now = new Date();
-      const timestamp = `US_ANCHOR_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+      const timestamp = `VOICE_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
       
-      const zipBlob = await createZipBlob(mp3Blob, srtBlob, timestamp);
-      
-      const audioUrl = URL.createObjectURL(mp3Blob);
-      if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-          audioRef.current.play();
+      setResult({
+        mp3Blob,
+        srtBlob,
+        charCount: text.length,
+        durationStr,
+        generationTime: generationTimeSec,
+        timestamp
+      });
+
+      // Phát âm thanh thông báo thành công (Ping)
+      if (notifyAudioRef.current) {
+        notifyAudioRef.current.play().catch(() => {});
       }
-      
-      downloadFile(zipBlob, `${timestamp}.zip`);
       
     } catch (error: any) {
       console.error(error);
-      setErrorMsg("Lỗi: Không thể tạo âm thanh. Có thể văn bản quá dài hoặc API Key hết hạn.");
+      setErrorMsg(error.message || "Lỗi: Không thể tạo âm thanh. Vui lòng kiểm tra API Key.");
     } finally {
       setIsGenerating(false);
     }
   };
 
+  const downloadZip = async () => {
+    if (!result) return;
+    const zipBlob = await createZipBlob(result.mp3Blob, result.srtBlob, result.timestamp);
+    downloadFile(zipBlob, `${result.timestamp}_Full.zip`);
+  };
+
   return (
-    <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30">
+    <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
           US News Broadcaster System v12.1
@@ -90,7 +122,7 @@ const App: React.FC = () => {
             <div className="bg-slate-900/30 border border-white/5 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group min-h-[500px] flex flex-col">
                 <textarea 
                     className="flex-1 w-full bg-transparent border-none text-2xl font-medium focus:ring-0 outline-none resize-none placeholder:text-slate-800 leading-relaxed custom-scrollbar"
-                    placeholder="Enter news script... 4 professional US voices will rotate automatically."
+                    placeholder="Nhập kịch bản tin tức tại đây... Hệ thống sẽ tự động điều phối API và đảo giọng đọc chuyên nghiệp."
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                 />
@@ -101,7 +133,7 @@ const App: React.FC = () => {
                 )}
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/5 text-[10px] font-mono text-slate-500 tracking-widest uppercase">
                     <span>{text.length} characters</span>
-                    <span className="text-orange-500/50">Multi-Turn Voice Rotation Enabled (Safe chunking)</span>
+                    <span className="text-orange-500/50">Smart API Load Balancing Active</span>
                 </div>
             </div>
             
@@ -208,7 +240,66 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* Popup Kết Quả */}
+      {result && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[3rem] p-8 shadow-[0_0_100px_rgba(234,88,12,0.15)] relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-orange-600"></div>
+            
+            <button 
+                onClick={() => setResult(null)}
+                className="absolute top-6 right-8 text-slate-500 hover:text-white transition-colors text-xl"
+            >✕</button>
+
+            <h3 className="text-2xl font-black italic uppercase text-white mb-2">Production <span className="text-orange-600">Complete</span></h3>
+            <p className="text-slate-500 text-[10px] font-mono uppercase tracking-widest mb-8">Hệ thống đã hoàn tất xử lý kịch bản của bạn.</p>
+
+            <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="bg-black/40 border border-white/5 p-5 rounded-3xl">
+                    <span className="block text-[9px] uppercase tracking-tighter text-slate-500 mb-1">Text Volume</span>
+                    <span className="text-xl font-bold text-white">{result.charCount} <span className="text-[10px] text-slate-600">CHARS</span></span>
+                </div>
+                <div className="bg-black/40 border border-white/5 p-5 rounded-3xl">
+                    <span className="block text-[9px] uppercase tracking-tighter text-slate-500 mb-1">Audio Duration</span>
+                    <span className="text-xl font-bold text-white">{result.durationStr} <span className="text-[10px] text-slate-600">MINS</span></span>
+                </div>
+                <div className="bg-black/40 border border-white/5 p-5 rounded-3xl col-span-2">
+                    <span className="block text-[9px] uppercase tracking-tighter text-slate-500 mb-1">Latency / Generation Speed</span>
+                    <span className="text-xl font-bold text-orange-500">{result.generationTime} <span className="text-[10px] text-slate-600 uppercase">Seconds</span></span>
+                </div>
+            </div>
+
+            <div className="mb-8">
+                <audio 
+                  controls 
+                  className="w-full accent-orange-600 h-10" 
+                  src={URL.createObjectURL(result.mp3Blob)} 
+                />
+            </div>
+
+            <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                    <button 
+                        onClick={() => downloadFile(result.mp3Blob, `${result.timestamp}.mp3`)}
+                        className="bg-white/5 hover:bg-white/10 border border-white/5 py-4 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all"
+                    >Download MP3</button>
+                    <button 
+                        onClick={() => downloadFile(result.srtBlob, `${result.timestamp}.srt`)}
+                        className="bg-white/5 hover:bg-white/10 border border-white/5 py-4 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all"
+                    >Download SRT</button>
+                </div>
+                <button 
+                    onClick={downloadZip}
+                    className="w-full bg-orange-600 hover:bg-orange-500 py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] transition-all shadow-xl shadow-orange-600/10"
+                >Get Production Package (ZIP)</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Âm thanh hệ thống */}
       <audio ref={audioRef} className="hidden" />
+      <audio ref={notifyAudioRef} className="hidden" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
 
       <style>{`
         body { background: radial-gradient(circle at top right, #0a0a0a, #020202); }
@@ -219,6 +310,9 @@ const App: React.FC = () => {
         input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 2px; cursor: pointer; background: #1a1a1a; border-radius: 2px; }
         input[type=range]::-webkit-slider-thumb { height: 14px; width: 14px; border-radius: 50%; background: #ea580c; cursor: pointer; -webkit-appearance: none; margin-top: -6px; border: 2px solid #000; box-shadow: 0 0 10px rgba(234, 88, 12, 0.4); }
         select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 1rem center; background-size: 1em; }
+        audio::-webkit-media-controls-panel { background-color: #0f172a; }
+        audio::-webkit-media-controls-current-time-display,
+        audio::-webkit-media-controls-time-remaining-display { color: #f8fafc; }
       `}</style>
     </div>
   );
