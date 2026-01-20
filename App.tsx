@@ -14,12 +14,6 @@ const downloadFile = (blob: Blob, fileName: string) => {
   document.body.removeChild(a);
 };
 
-interface WordTimestamp {
-  text: string;
-  startMs: number;
-  endMs: number;
-}
-
 interface ProductionResult {
   mp3Blob: Blob;
   srtBlob: Blob;
@@ -28,7 +22,7 @@ interface ProductionResult {
   generationTimeStr: string;
   timestamp: string;
   originalText: string;
-  wordTimestamps: WordTimestamp[];
+  audioUrl: string;
 }
 
 const App: React.FC = () => {
@@ -37,8 +31,8 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ProductionResult | null>(null);
-  const [currentTimeMs, setCurrentTimeMs] = useState(0);
   
+  // KHÔI PHỤC VOCAL CONFIG V12.1
   const [bioSettings, setBioSettings] = useState<BioSettings>({
     stutterRate: 35,       
     breathIntensity: 'loud', 
@@ -51,8 +45,6 @@ const App: React.FC = () => {
   });
 
   const notifyAudioRef = useRef<HTMLAudioElement | null>(null);
-  const popupAudioRef = useRef<HTMLAudioElement | null>(null);
-  const activeWordRef = useRef<HTMLSpanElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const formatDuration = (ms: number) => {
@@ -61,16 +53,6 @@ const App: React.FC = () => {
     const secs = totalSeconds % 60;
     return mins > 0 ? `${mins} phút ${secs} giây` : `${secs} giây`;
   };
-
-  // Đồng bộ cuộn văn bản khi từ active thay đổi
-  useEffect(() => {
-    if (activeWordRef.current && scrollContainerRef.current) {
-      activeWordRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
-    }
-  }, [currentTimeMs]);
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
@@ -95,28 +77,15 @@ const App: React.FC = () => {
       const mp3Blob = createMp3Blob(speechResult.audioData);
       const srtBlob = createSrtBlob(speechResult.metadata);
       
-      // Xây dựng bản đồ thời gian cho từng từ để Highlight
-      let currentTrackMs = 0;
-      const wordTimestamps: WordTimestamp[] = [];
-      speechResult.metadata.forEach(m => {
-        const words = m.text.split(/\s+/);
-        const msPerWord = m.durationMs / words.length;
-        words.forEach(w => {
-          wordTimestamps.push({
-            text: w,
-            startMs: currentTrackMs,
-            endMs: currentTrackMs + msPerWord
-          });
-          currentTrackMs += msPerWord;
-        });
-      });
-
       const totalAudioMs = speechResult.metadata.reduce((acc, m) => acc + m.durationMs, 0);
       const audioDurationStr = formatDuration(totalAudioMs);
 
       const now = new Date();
       const timestamp = `VOICE_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
       
+      // Tạo URL cố định để trình phát không bị lỗi
+      const audioUrl = URL.createObjectURL(mp3Blob);
+
       setResult({
         mp3Blob,
         srtBlob,
@@ -125,7 +94,7 @@ const App: React.FC = () => {
         generationTimeStr,
         timestamp,
         originalText: text,
-        wordTimestamps
+        audioUrl
       });
 
       if (notifyAudioRef.current) {
@@ -140,6 +109,13 @@ const App: React.FC = () => {
     }
   };
 
+  // Dọn dẹp URL khi đóng popup
+  useEffect(() => {
+    return () => {
+      if (result?.audioUrl) URL.revokeObjectURL(result.audioUrl);
+    };
+  }, [result]);
+
   const downloadZip = async () => {
     if (!result) return;
     const zipBlob = await createZipBlob(result.mp3Blob, result.srtBlob, result.timestamp);
@@ -150,12 +126,12 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.3
+          US News Broadcaster System v12.4
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
         </h1>
-        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Professional US English News Anchors - Real-time Karaoke Sync.</p>
+        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">8 Professional US Female News Voices - Optimized Production.</p>
       </header>
 
       <main className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-8">
@@ -174,19 +150,19 @@ const App: React.FC = () => {
                 )}
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/5 text-[10px] font-mono text-slate-500 tracking-widest uppercase">
                     <span>{text.length} characters</span>
-                    <span className="text-orange-500/50">High-Fidelity Karaoke Engine Active</span>
+                    <span className="text-orange-500/50">Broadcaster Standards Applied</span>
                 </div>
             </div>
         </div>
 
         <div className="space-y-6">
             <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
-                <h2 className="text-xs font-black uppercase tracking-[0.3em] text-orange-500 mb-8 border-b border-white/5 pb-4">Vocal Configuration</h2>
+                <h2 className="text-xs font-black uppercase tracking-[0.3em] text-orange-500 mb-8 border-b border-white/5 pb-4">Biometric Parameters</h2>
                 
                 <div className="space-y-8">
                     <div className="space-y-4">
                         <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            <span>Stutter Rate</span>
+                            <span>Stutter Probability</span>
                             <span className="text-orange-500">{bioSettings.stutterRate}%</span>
                         </div>
                         <input type="range" min="5" max="50" value={bioSettings.stutterRate} 
@@ -196,7 +172,7 @@ const App: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            <span>Filler Frequency</span>
+                            <span>Filler Density</span>
                             <span className="text-orange-500">{bioSettings.fillerRate}%</span>
                         </div>
                         <input type="range" min="5" max="50" value={bioSettings.fillerRate} 
@@ -206,7 +182,7 @@ const App: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            <span>Dynamic Range</span>
+                            <span>Vocal Dynamics</span>
                             <span className="text-orange-500">{bioSettings.volumeVariation}%</span>
                         </div>
                         <input type="range" min="5" max="80" value={bioSettings.volumeVariation} 
@@ -216,7 +192,7 @@ const App: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            <span>Speed Jitter</span>
+                            <span>Cadence Jitter</span>
                             <span className="text-orange-500">{bioSettings.speedVariation}%</span>
                         </div>
                         <input type="range" min="5" max="70" value={bioSettings.speedVariation} 
@@ -228,15 +204,15 @@ const App: React.FC = () => {
                         <button 
                             className={`p-4 rounded-2xl text-[9px] font-bold uppercase border transition-all ${bioSettings.asymmetry ? 'border-orange-500 text-orange-500 bg-orange-500/5 shadow-[0_0_20px_rgba(249,115,22,0.1)]' : 'border-white/5 text-slate-600'}`}
                             onClick={() => setBioSettings({...bioSettings, asymmetry: !bioSettings.asymmetry})}
-                        >Fluid Flow</button>
+                        >Natural Flow</button>
                         <button 
                             className={`p-4 rounded-2xl text-[9px] font-bold uppercase border transition-all ${bioSettings.ambientSounds ? 'border-orange-500 text-orange-500 bg-orange-500/5 shadow-[0_0_20px_rgba(249,115,22,0.1)]' : 'border-white/5 text-slate-600'}`}
                             onClick={() => setBioSettings({...bioSettings, ambientSounds: !bioSettings.ambientSounds})}
-                        >Studio FX</button>
+                        >Ambient FX</button>
                     </div>
 
                     <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block">Breath Intensity</label>
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block">Breathing Effort</label>
                         <select 
                             value={bioSettings.breathIntensity}
                             onChange={(e) => setBioSettings({...bioSettings, breathIntensity: e.target.value as any})}
@@ -244,7 +220,20 @@ const App: React.FC = () => {
                         >
                             <option value="none">Suppressed</option>
                             <option value="soft">Subtle</option>
-                            <option value="loud">Broadcaster Deep</option>
+                            <option value="loud">Deep Anchor Breaths</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-4">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block">Punctuation Pause</label>
+                        <select 
+                            value={bioSettings.waitDuration}
+                            onChange={(e) => setBioSettings({...bioSettings, waitDuration: e.target.value as any})}
+                            className="w-full bg-black border border-white/10 rounded-xl p-3 text-[10px] text-white focus:ring-1 focus:ring-orange-500 outline-none appearance-none"
+                        >
+                            <option value="natural">Natural (400ms)</option>
+                            <option value="long">News Standard (1000ms)</option>
+                            <option value="random">Organic Variation</option>
                         </select>
                     </div>
                 </div>
@@ -261,7 +250,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Popup Kết Quả với Highlight */}
+      {/* Popup Kết Quả */}
       {result && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-10 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-slate-900 border border-white/10 w-full max-w-6xl h-full max-h-[800px] rounded-[3rem] shadow-[0_0_120px_rgba(234,88,12,0.2)] relative overflow-hidden flex flex-col md:flex-row">
@@ -276,31 +265,29 @@ const App: React.FC = () => {
             <div className="w-full md:w-2/5 p-8 md:p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/5">
               <div>
                 <h3 className="text-3xl font-black italic uppercase text-white mb-2 leading-none">Export <span className="text-orange-600">Summary</span></h3>
-                <p className="text-slate-500 text-[10px] font-mono uppercase tracking-widest mb-10">Production metrics & verification assets.</p>
+                <p className="text-slate-500 text-[10px] font-mono uppercase tracking-widest mb-10">Production metrics & assets.</p>
 
                 <div className="grid grid-cols-1 gap-4 mb-8">
                     <div className="bg-black/40 border border-white/5 p-5 rounded-3xl flex justify-between items-center">
                         <span className="text-[9px] uppercase tracking-tighter text-slate-500">Volume</span>
-                        <span className="text-lg font-bold text-white">{result.charCount} <span className="text-[10px] text-slate-600">CHARS</span></span>
+                        <span className="text-lg font-bold text-white">{result.charCount} <span className="text-[10px] text-slate-600 uppercase">Chars</span></span>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-5 rounded-3xl flex justify-between items-center">
                         <span className="text-[9px] uppercase tracking-tighter text-slate-500">Duration</span>
-                        <span className="text-lg font-bold text-white">{result.durationStr}</span>
+                        <span className="text-lg font-bold text-white uppercase">{result.durationStr}</span>
                     </div>
                     <div className="bg-black/40 border border-orange-500/10 p-5 rounded-3xl flex justify-between items-center bg-orange-500/[0.02]">
                         <span className="text-[9px] uppercase tracking-tighter text-orange-500/70">Engine Latency</span>
-                        <span className="text-lg font-bold text-orange-500">{result.generationTimeStr}</span>
+                        <span className="text-lg font-bold text-orange-500 uppercase">{result.generationTimeStr}</span>
                     </div>
                 </div>
 
                 <div className="mb-8">
-                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-600 block mb-3">Instant Review (Autosync On)</label>
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-600 block mb-3">Review Broadcast</label>
                     <audio 
-                      ref={popupAudioRef}
                       controls 
-                      onTimeUpdate={(e) => setCurrentTimeMs(e.currentTarget.currentTime * 1000)}
                       className="w-full accent-orange-600 h-10 rounded-xl" 
-                      src={URL.createObjectURL(result.mp3Blob)} 
+                      src={result.audioUrl} 
                     />
                 </div>
               </div>
@@ -314,38 +301,27 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: Karaoke Script Viewer */}
-            <div className="w-full md:w-3/5 bg-black/40 p-8 md:p-12 overflow-hidden flex flex-col">
+            {/* Right: Script Viewer */}
+            <div className="w-full md:w-3/5 bg-black/20 p-8 md:p-12 overflow-hidden flex flex-col">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-6 flex items-center">
                 <span className="w-2 h-2 bg-orange-600 rounded-full mr-3 animate-pulse"></span>
-                Script Comparison Viewer (Synced)
+                Source Script Reference
               </h4>
               <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
-                <div className="text-xl md:text-2xl font-medium leading-relaxed flex flex-wrap gap-x-2 gap-y-3">
-                    {result.wordTimestamps.map((word, idx) => {
-                        const isActive = currentTimeMs >= word.startMs && currentTimeMs <= word.endMs;
-                        return (
-                            <span 
-                                key={idx}
-                                ref={isActive ? activeWordRef : null}
-                                className={`transition-all duration-200 rounded-md px-1 ${isActive ? 'bg-orange-600 text-white scale-110 shadow-[0_0_15px_rgba(234,88,12,0.4)] z-10' : 'text-slate-500'}`}
-                            >
-                                {word.text}
-                            </span>
-                        );
-                    })}
+                <div className="text-xl md:text-2xl font-medium leading-relaxed text-orange-500 bg-orange-500/5 p-6 rounded-3xl border border-orange-500/10 whitespace-pre-wrap selection:bg-white selection:text-orange-600">
+                    {result.originalText}
                 </div>
               </div>
               <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-mono text-slate-600 uppercase tracking-widest">
                 <span>Verification ID: {result.timestamp}</span>
-                <span>Karaoke Mode: Syllable Weighted Alignment</span>
+                <span>Rendered with Gemini 2.5 Flash News Engine</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Invisible System Audio */}
+      {/* Invisible Notify Audio */}
       <audio ref={notifyAudioRef} className="hidden" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
 
       <style>{`
