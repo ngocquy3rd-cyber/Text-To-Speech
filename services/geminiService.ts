@@ -30,22 +30,63 @@ export interface GeneratedSpeechResult {
   metadata: AudioChunkMetadata[];
 }
 
-// API Key duy nhất của người dùng
-const API_KEY = "AIzaSyD3XsfJUkK3X5-z720lx7P_SV2OplHcbfw";
+// Danh sách tất cả API Keys bạn cung cấp
+const ORIGINAL_KEYS = [
+  "AIzaSyDlqh2BVvo_qJ8KNcVKiZ-9OdNynnc8884",
+  "AIzaSyCoD2B_VVKzZJCNl-RqBJy6SanQnX2lo0U",
+  "AIzaSyBQIJnnAhffFJi1OMDshziXWIPwdZdWpOA",
+  "AIzaSyDRM25nu8rhmRhDcSXu19_KhYV9UdouL30",
+  "AIzaSyBjERleirTQHkeRexCx779DVtcaIeL1X4s",
+  "AIzaSyBvLjurH8MNnP10lhvaFgOtN-wAh82BV2c",
+  "AIzaSyBp-yrKVpHmoXaxz37pMqTjHmGUjTLbDmw",
+  "AIzaSyBpBD-Npf2VGdckZsrq19bsW3MthUN-fi0"
+];
+
+// Xáo trộn danh sách key ngay khi load trang để tránh tập trung vào key đầu tiên
+const SHUFFLED_KEYS = [...ORIGINAL_KEYS].sort(() => Math.random() - 0.5);
+const FAILED_KEYS = new Set<string>();
+let currentKeyIndex = 0;
 
 function getAIClient() {
-  return new GoogleGenAI({ apiKey: API_KEY });
+  // Tìm key tiếp theo không nằm trong danh sách đã lỗi
+  let attempts = 0;
+  while (FAILED_KEYS.has(SHUFFLED_KEYS[currentKeyIndex]) && attempts < SHUFFLED_KEYS.length) {
+    currentKeyIndex = (currentKeyIndex + 1) % SHUFFLED_KEYS.length;
+    attempts++;
+  }
+  
+  const key = SHUFFLED_KEYS[currentKeyIndex];
+  return new GoogleGenAI({ apiKey: key });
 }
 
-// Giảm xuống 300 ký tự để đảm bảo an toàn tuyệt đối cho Quota miễn phí
-const ABSOLUTE_MAX_CHARS = 300;
+function markCurrentKeyAsFailed() {
+  const failedKey = SHUFFLED_KEYS[currentKeyIndex];
+  FAILED_KEYS.add(failedKey);
+  console.error(`Key ${failedKey.substring(0, 10)}... marked as FAILED. Active keys left: ${SHUFFLED_KEYS.length - FAILED_KEYS.size}`);
+  currentKeyIndex = (currentKeyIndex + 1) % SHUFFLED_KEYS.length;
+}
+
+const ABSOLUTE_MAX_CHARS = 500;
 
 const FEMALE_PERSONAS = [
   { id: 'Kore', name: 'Anchor Alpha', style: 'Mature, authoritative female anchor.' },
   { id: 'Zephyr', name: 'Reporter Beta', style: 'Youthful, energetic reporter.' },
   { id: 'Kore', name: 'Narrator Gamma', style: 'Soft, calm narrator.' },
-  { id: 'Zephyr', name: 'Host Delta', style: 'Warm morning show host.' }
+  { id: 'Zephyr', name: 'Host Delta', style: 'Warm morning show host.' },
+  { id: 'Kore', name: 'Expert Epsilon', style: 'Crisp technical correspondent.' },
+  { id: 'Zephyr', name: 'Specialist Zeta', style: 'Urgent breaking news style.' },
+  { id: 'Kore', name: 'Global Eta', style: 'Prestigious global broadcast.' },
+  { id: 'Zephyr', name: 'Tech Theta', style: 'Modern tech reader.' }
 ];
+
+function shuffleArray<T>(array: T[]): T[] {
+  const newArr = [...array];
+  for (let i = newArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+  }
+  return newArr;
+}
 
 function humanizeText(text: string, settings: BioSettings): { ssml: string, plain: string } {
     const sentences = text.match(/[^.!?\n]+[.!?\n]*(\s+|$)/g) || [text];
@@ -81,19 +122,19 @@ function humanizeText(text: string, settings: BioSettings): { ssml: string, plai
     return { ssml: richSSML, plain: plainSynthesized };
 }
 
-async function processWithRetry(
+async function processChunkWithRobustRotation(
   chunk: string, 
   persona: typeof FEMALE_PERSONAS[0], 
   index: number,
   settings: BioSettings
 ): Promise<{ index: number; audio: Uint8Array; metadata: AudioChunkMetadata } | null> {
     const humanized = humanizeText(chunk, settings);
-    const systemPrompt = `PERFORM AS: ${persona.name}. STYLE: ${persona.style}. BREATHING: ${settings.breathIntensity}. TEXT: ${humanized.ssml}`;
+    const systemPrompt = `TASK: PERFORM AS A PROFESSIONAL FEMALE NEWS ANCHOR. STYLE: ${persona.style} IDENTITY: ${persona.name}. BREATHING: ${settings.breathIntensity}. TEXT: ${humanized.ssml}`;
 
-    // Tăng số lần thử lại và giãn cách thời gian lâu hơn cho Key duy nhất
-    const MAX_ATTEMPTS = 5;
+    // Thử quay vòng key cho đến khi tìm được key sống hoặc hết sạch key
+    const maxGlobalAttempts = SHUFFLED_KEYS.length;
     
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    for (let globalAttempt = 0; globalAttempt < maxGlobalAttempts; globalAttempt++) {
       try {
         const ai = getAIClient();
         const response = await ai.models.generateContent({
@@ -110,10 +151,7 @@ async function processWithRetry(
         });
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) {
-            // Nếu không có audio, có thể do Google chặn nội dung hoặc lỗi model
-            throw new Error("Google không trả về dữ liệu âm thanh (có thể do nội dung nhạy cảm hoặc lỗi model).");
-        }
+        if (!base64Audio) throw new Error("empty_response"); 
         
         const audioBytes = base64ToUint8Array(base64Audio);
         return {
@@ -122,20 +160,23 @@ async function processWithRetry(
           metadata: { text: humanized.plain, durationMs: (audioBytes.length / 48000) * 1000 }
         };
       } catch (error: any) {
-        const errorStatus = error?.status || "";
-        const errorMsg = error?.message || "Lỗi không xác định";
-        console.error(`[Lần thử ${attempt + 1}] Thất bại:`, errorMsg);
-
-        // Nếu là lỗi 429 (Too many requests), cần đợi lâu hơn
-        const isRateLimit = errorMsg.includes("429") || errorMsg.toLowerCase().includes("quota");
+        const msg = error?.message || "";
+        console.warn(`Request failed with current key. Reason: ${msg}. Attempting next key...`);
         
-        if (attempt === MAX_ATTEMPTS - 1) {
-          throw new Error(`API Key lỗi: ${errorMsg}. Vui lòng kiểm tra lại Key hoặc thử văn bản ngắn hơn.`);
+        // Nếu lỗi liên quan đến quota hoặc không tìm thấy model, loại bỏ key này khỏi danh sách sử dụng
+        if (msg.includes("quota") || msg.includes("429") || msg.includes("limit") || msg.includes("empty_response")) {
+          markCurrentKeyAsFailed();
+        } else {
+          // Với các lỗi khác, chỉ chuyển index mà không đánh dấu fail vĩnh viễn
+          currentKeyIndex = (currentKeyIndex + 1) % SHUFFLED_KEYS.length;
         }
 
-        // Delay tăng dần (Exponential Backoff): 1s, 3s, 5s...
-        const waitTime = isRateLimit ? 3000 * (attempt + 1) : 1000 * (attempt + 1);
-        await new Promise(r => setTimeout(r, waitTime));
+        if (FAILED_KEYS.size >= SHUFFLED_KEYS.length) {
+          throw new Error("Tất cả API Keys hiện tại đều không khả dụng. Vui lòng kiểm tra lại hạn mức hoặc bổ sung key mới.");
+        }
+        
+        // Đợi một chút trước khi thử key tiếp theo để tránh bị rate limit IP
+        await new Promise(r => setTimeout(r, 500));
       }
     }
     return null;
@@ -144,23 +185,14 @@ async function processWithRetry(
 export async function generateSpeech(params: GenerateSpeechParams): Promise<GeneratedSpeechResult> {
   const chunks = splitTextIntoSpeakerTurns(params.text);
   const results: { index: number; audio: Uint8Array; metadata: AudioChunkMetadata }[] = [];
-  
-  // Trộn giọng đọc
-  const personas = [...FEMALE_PERSONAS].sort(() => Math.random() - 0.5);
+  let shuffledPersonas = shuffleArray(FEMALE_PERSONAS);
   
   for (let i = 0; i < chunks.length; i++) {
-    const persona = personas[i % personas.length];
-    const res = await processWithRetry(chunks[i], persona, i, params.settings);
+    const persona = shuffledPersonas[i % shuffledPersonas.length];
+    const res = await processChunkWithRobustRotation(chunks[i], persona, i, params.settings);
     if (res) results.push(res);
     if (params.onProgress) params.onProgress(Math.round(((i + 1) / chunks.length) * 100));
-    
-    // NGHỈ 1 GIÂY giữa các đoạn để tránh bị Google khóa IP/Quota tạm thời
-    if (i < chunks.length - 1) {
-        await new Promise(r => setTimeout(r, 1200));
-    }
   }
-
-  if (results.length === 0) throw new Error("Không tạo được bất kỳ đoạn âm thanh nào.");
 
   results.sort((a, b) => a.index - b.index);
   const totalByteLength = results.reduce((acc, r) => acc + r.audio.length, 0);
@@ -174,16 +206,12 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
 }
 
 function splitTextIntoSpeakerTurns(text: string): string[] {
-    // Tách theo câu để đảm bảo ngắt nghỉ tự nhiên
     const sentences = text.match(/[^.!?\n]+[.!?\n]*(\s+|$)/g) || [text];
     const chunks: string[] = [];
     let currentChunk = "";
-    
     sentences.forEach(s => {
         const trimmedS = s.trim();
         if (!trimmedS) return;
-        
-        // Nếu thêm câu mới vào vượt quá giới hạn an toàn, đóng đoạn cũ
         if ((currentChunk.length + trimmedS.length > ABSOLUTE_MAX_CHARS) && currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
             currentChunk = trimmedS;
@@ -191,7 +219,6 @@ function splitTextIntoSpeakerTurns(text: string): string[] {
             currentChunk += (currentChunk ? " " : "") + trimmedS;
         }
     });
-    
     if (currentChunk.trim()) chunks.push(currentChunk.trim());
     return chunks;
 }
