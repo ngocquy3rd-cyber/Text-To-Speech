@@ -47,24 +47,42 @@ const ALL_KEYS = [
   "AIzaSyCzgdnMJnVKNFEouSdBVRpLJYNMj9UZusk"
 ];
 
-const LAST_KEY_STORAGE = "last_used_gemini_key";
-const FAILED_KEYS = new Set<string>();
+const LAST_KEY_STORAGE = "last_used_gemini_key_v2";
+const FAILED_KEYS_IN_SESSION = new Set<string>();
 
+/**
+ * Lấy API Key thông minh:
+ * 1. Loại bỏ các key bị lỗi trong phiên làm việc.
+ * 2. Loại bỏ key vừa sử dụng gần nhất (từ localStorage).
+ * 3. Chọn ngẫu nhiên 1 key trong danh sách còn lại.
+ */
 function getSmartApiKey(): string {
   const lastUsed = localStorage.getItem(LAST_KEY_STORAGE);
-  let availableKeys = ALL_KEYS.filter(k => !FAILED_KEYS.has(k));
-  if (availableKeys.length === 0) {
-    FAILED_KEYS.clear();
-    availableKeys = [...ALL_KEYS];
+  
+  // Lọc lấy những key chưa bị lỗi
+  let healthyKeys = ALL_KEYS.filter(k => !FAILED_KEYS_IN_SESSION.has(k));
+  
+  // Nếu tất cả các key đều bị đánh dấu lỗi, reset danh sách lỗi để thử lại
+  if (healthyKeys.length === 0) {
+    FAILED_KEYS_IN_SESSION.clear();
+    healthyKeys = [...ALL_KEYS];
   }
-  let finalChoices = availableKeys.filter(k => k !== lastUsed);
-  if (finalChoices.length === 0) finalChoices = availableKeys;
-  const pickedKey = finalChoices[Math.floor(Math.random() * finalChoices.length)];
+
+  // Lọc bỏ key vừa dùng ở lần yêu cầu trước đó
+  let candidates = healthyKeys.filter(k => k !== lastUsed);
+  
+  // Nếu chỉ còn 1 key và nó trùng với key cũ, buộc phải dùng tiếp
+  if (candidates.length === 0) candidates = healthyKeys;
+
+  // Chọn ngẫu nhiên
+  const pickedKey = candidates[Math.floor(Math.random() * candidates.length)];
+  
+  // Lưu lại để lần sau không trùng
   localStorage.setItem(LAST_KEY_STORAGE, pickedKey);
   return pickedKey;
 }
 
-const ABSOLUTE_MAX_CHARS = 250; // Giảm xuống để đảm bảo đọc ổn định hơn
+const ABSOLUTE_MAX_CHARS = 250;
 
 const NEWS_PERSONAS = [
   { id: 'Kore', name: 'Elite Anchor (Fast)', style: 'High energy, fast-paced breaking news.', rate: "1.15" },
@@ -84,7 +102,6 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
     
     sentences.forEach((sentence, index) => {
         let processedSentence = sentence.trim();
-        // Giảm xác suất stutter để tránh làm nhiễu mô hình khi đọc từ khó
         if (Math.random() < (settings.stutterRate / 200)) { 
             const words = processedSentence.split(' ');
             if (words.length > 3) {
@@ -104,7 +121,6 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
             pause = `<break time="${waitTime}ms"/>`;
         }
         
-        // Sử dụng thẻ prosody bao quanh chặt chẽ để buộc đọc nội dung
         richSSML += `${pause}<prosody volume="medium" rate="${randomSpeed}">${processedSentence}</prosody>`;
         plainSynthesized += (plainSynthesized ? " " : "") + processedSentence;
     });
@@ -119,7 +135,6 @@ async function processWithRetry(
   settings: BioSettings
 ): Promise<{ index: number; audio: Uint8Array; metadata: AudioChunkMetadata } | null> {
     const humanized = humanizeText(chunk, settings, persona.rate);
-    // Nhấn mạnh việc đọc 100% văn bản
     const systemPrompt = `ACT AS: ${persona.name}. STYLE: ${persona.style}. 
     MANDATORY: Pronounce 100% of the words provided in the SSML. Do NOT skip, summarize, or edit any words. 
     TEXT TO SPEAK: ${humanized.ssml}`;
@@ -153,9 +168,11 @@ async function processWithRetry(
         };
       } catch (error: any) {
         const errorMsg = error?.message || "";
-        if (errorMsg.includes("429") || errorMsg.includes("quota")) {
-            FAILED_KEYS.add(currentApiKey);
+        // Nếu lỗi do giới hạn hoặc key chết, đưa vào danh sách đen của phiên này
+        if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("API key not valid")) {
+            FAILED_KEYS_IN_SESSION.add(currentApiKey);
         }
+        console.warn(`API Error with key ${currentApiKey.substring(0, 8)}...:`, errorMsg);
         await new Promise(r => setTimeout(r, 1000));
       }
     }
@@ -172,11 +189,10 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
     const res = await processWithRetry(chunks[i], persona, i, params.settings);
     if (res) results.push(res);
     if (params.onProgress) params.onProgress(Math.round(((i + 1) / chunks.length) * 100));
-    // Tăng thời gian chờ một chút để ổn định kết nối
     if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 800));
   }
 
-  if (results.length === 0) throw new Error("Không thể tạo dữ liệu âm thanh.");
+  if (results.length === 0) throw new Error("Không thể tạo dữ liệu âm thanh sau nhiều lần thử với các API Key khác nhau.");
   results.sort((a, b) => a.index - b.index);
   const totalByteLength = results.reduce((acc, r) => acc + r.audio.length, 0);
   const combinedAudio = new Uint8Array(totalByteLength);
@@ -195,7 +211,6 @@ function splitTextIntoSpeakerTurns(text: string): string[] {
     sentences.forEach(s => {
         const trimmedS = s.trim();
         if (!trimmedS) return;
-        // Kiểm tra độ dài nghiêm ngặt hơn
         if ((currentChunk.length + trimmedS.length > ABSOLUTE_MAX_CHARS) && currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
             currentChunk = trimmedS;
