@@ -47,37 +47,28 @@ const ALL_KEYS = [
   "AIzaSyCzgdnMJnVKNFEouSdBVRpLJYNMj9UZusk"
 ];
 
-const LAST_KEY_STORAGE = "last_used_gemini_key_v2";
+const LAST_KEY_STORAGE = "last_used_gemini_key_v12_6";
 const FAILED_KEYS_IN_SESSION = new Set<string>();
 
 /**
- * Lấy API Key thông minh:
- * 1. Loại bỏ các key bị lỗi trong phiên làm việc.
- * 2. Loại bỏ key vừa sử dụng gần nhất (từ localStorage).
- * 3. Chọn ngẫu nhiên 1 key trong danh sách còn lại.
+ * Smart API Rotation v12.6:
+ * - Loại bỏ key lỗi trong phiên.
+ * - Loại bỏ key dùng gần nhất.
+ * - Chọn ngẫu nhiên trong phần còn lại.
  */
 function getSmartApiKey(): string {
   const lastUsed = localStorage.getItem(LAST_KEY_STORAGE);
-  
-  // Lọc lấy những key chưa bị lỗi
   let healthyKeys = ALL_KEYS.filter(k => !FAILED_KEYS_IN_SESSION.has(k));
   
-  // Nếu tất cả các key đều bị đánh dấu lỗi, reset danh sách lỗi để thử lại
   if (healthyKeys.length === 0) {
     FAILED_KEYS_IN_SESSION.clear();
     healthyKeys = [...ALL_KEYS];
   }
 
-  // Lọc bỏ key vừa dùng ở lần yêu cầu trước đó
   let candidates = healthyKeys.filter(k => k !== lastUsed);
-  
-  // Nếu chỉ còn 1 key và nó trùng với key cũ, buộc phải dùng tiếp
   if (candidates.length === 0) candidates = healthyKeys;
 
-  // Chọn ngẫu nhiên
   const pickedKey = candidates[Math.floor(Math.random() * candidates.length)];
-  
-  // Lưu lại để lần sau không trùng
   localStorage.setItem(LAST_KEY_STORAGE, pickedKey);
   return pickedKey;
 }
@@ -102,9 +93,10 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
     
     sentences.forEach((sentence, index) => {
         let processedSentence = sentence.trim();
-        if (Math.random() < (settings.stutterRate / 200)) { 
+        // Giảm tỷ lệ stutter để đảm bảo mô hình tập trung phát âm từ chính xác
+        if (Math.random() < (settings.stutterRate / 250)) { 
             const words = processedSentence.split(' ');
-            if (words.length > 3) {
+            if (words.length > 4) {
                 const idx = Math.floor(Math.random() * Math.min(words.length, 3));
                 words[idx] = `${words[idx]}... ${words[idx]}`;
                 processedSentence = words.join(' ');
@@ -113,14 +105,15 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
         
         const speedRange = settings.speedVariation / 100;
         const baseRate = parseFloat(personaRate);
-        const randomSpeed = (baseRate + (Math.random() * speedRange * 0.2 - (speedRange * 0.1))).toFixed(2);
+        const randomSpeed = (baseRate + (Math.random() * speedRange * 0.15 - (speedRange * 0.07))).toFixed(2);
         
         let pause = "";
         if (index > 0) {
-            let waitTime = settings.waitDuration === 'long' ? 1000 : (settings.waitDuration === 'random' ? Math.floor(Math.random() * 600 + 200) : 400);
+            let waitTime = settings.waitDuration === 'long' ? 1000 : (settings.waitDuration === 'random' ? Math.floor(Math.random() * 500 + 200) : 400);
             pause = `<break time="${waitTime}ms"/>`;
         }
         
+        // Buộc phát âm qua prosody
         richSSML += `${pause}<prosody volume="medium" rate="${randomSpeed}">${processedSentence}</prosody>`;
         plainSynthesized += (plainSynthesized ? " " : "") + processedSentence;
     });
@@ -135,9 +128,11 @@ async function processWithRetry(
   settings: BioSettings
 ): Promise<{ index: number; audio: Uint8Array; metadata: AudioChunkMetadata } | null> {
     const humanized = humanizeText(chunk, settings, persona.rate);
-    const systemPrompt = `ACT AS: ${persona.name}. STYLE: ${persona.style}. 
-    MANDATORY: Pronounce 100% of the words provided in the SSML. Do NOT skip, summarize, or edit any words. 
-    TEXT TO SPEAK: ${humanized.ssml}`;
+    const systemPrompt = `YOU ARE A PROFESSIONAL BROADCASTER: ${persona.name}. 
+    MANDATORY RULE: Pronounce EVERY SINGLE WORD in the provided text. 
+    DO NOT skip "beautiful", "extraordinary", or any adjectives. 
+    NO SUMMARIZATION. 1:1 TRANSCRIPT TO SPEECH ONLY.
+    TEXT: ${humanized.ssml}`;
 
     const MAX_ATTEMPTS = 5;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -168,11 +163,9 @@ async function processWithRetry(
         };
       } catch (error: any) {
         const errorMsg = error?.message || "";
-        // Nếu lỗi do giới hạn hoặc key chết, đưa vào danh sách đen của phiên này
-        if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("API key not valid")) {
+        if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("key not valid")) {
             FAILED_KEYS_IN_SESSION.add(currentApiKey);
         }
-        console.warn(`API Error with key ${currentApiKey.substring(0, 8)}...:`, errorMsg);
         await new Promise(r => setTimeout(r, 1000));
       }
     }
@@ -189,10 +182,10 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
     const res = await processWithRetry(chunks[i], persona, i, params.settings);
     if (res) results.push(res);
     if (params.onProgress) params.onProgress(Math.round(((i + 1) / chunks.length) * 100));
-    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 800));
+    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 600));
   }
 
-  if (results.length === 0) throw new Error("Không thể tạo dữ liệu âm thanh sau nhiều lần thử với các API Key khác nhau.");
+  if (results.length === 0) throw new Error("Broadcast Failed: No available API keys or connection error.");
   results.sort((a, b) => a.index - b.index);
   const totalByteLength = results.reduce((acc, r) => acc + r.audio.length, 0);
   const combinedAudio = new Uint8Array(totalByteLength);

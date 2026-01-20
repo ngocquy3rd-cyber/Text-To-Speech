@@ -32,7 +32,6 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ProductionResult | null>(null);
   
-  // KHÔI PHỤC VOCAL CONFIG V12.1
   const [bioSettings, setBioSettings] = useState<BioSettings>({
     stutterRate: 35,       
     breathIntensity: 'loud', 
@@ -82,8 +81,6 @@ const App: React.FC = () => {
 
       const now = new Date();
       const timestamp = `VOICE_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
-      
-      // Tạo URL cố định để trình phát không bị lỗi
       const audioUrl = URL.createObjectURL(mp3Blob);
 
       setResult({
@@ -103,13 +100,12 @@ const App: React.FC = () => {
       
     } catch (error: any) {
       console.error(error);
-      setErrorMsg(error.message || "Lỗi: Không thể tạo âm thanh. Vui lòng kiểm tra API Key.");
+      setErrorMsg(error.message || "Lỗi: Không thể tạo âm thanh. Vui lòng kiểm tra lại API Keys.");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Dọn dẹp URL khi đóng popup
   useEffect(() => {
     return () => {
       if (result?.audioUrl) URL.revokeObjectURL(result.audioUrl);
@@ -126,12 +122,12 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.5
+          US News Broadcaster System v12.6
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
         </h1>
-        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">8 Professional US Female News Voices - Optimized Production.</p>
+        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Multi-API Smart Load Balancing - Professional Production.</p>
       </header>
 
       <main className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-8">
@@ -150,7 +146,7 @@ const App: React.FC = () => {
                 )}
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/5 text-[10px] font-mono text-slate-500 tracking-widest uppercase">
                     <span>{text.length} characters</span>
-                    <span className="text-orange-500/50">Broadcaster Standards Applied</span>
+                    <span className="text-orange-500/50">100% Word Retention Mode Active</span>
                 </div>
             </div>
         </div>
@@ -250,7 +246,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Popup Kết Quả */}
       {result && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-10 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-slate-900 border border-white/10 w-full max-w-6xl h-full max-h-[800px] rounded-[3rem] shadow-[0_0_120px_rgba(234,88,12,0.2)] relative overflow-hidden flex flex-col md:flex-row">
@@ -261,7 +256,6 @@ const App: React.FC = () => {
                 className="absolute top-6 right-8 z-20 bg-black/50 hover:bg-black/80 w-10 h-10 flex items-center justify-center rounded-full text-white transition-all text-xl border border-white/10"
             >✕</button>
 
-            {/* Left: Summary */}
             <div className="w-full md:w-2/5 p-8 md:p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/5">
               <div>
                 <h3 className="text-3xl font-black italic uppercase text-white mb-2 leading-none">Export <span className="text-orange-600">Summary</span></h3>
@@ -301,28 +295,25 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: Script Viewer */}
             <div className="w-full md:w-3/5 bg-black/20 p-8 md:p-12 overflow-hidden flex flex-col">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-6 flex items-center">
                 <span className="w-2 h-2 bg-orange-600 rounded-full mr-3 animate-pulse"></span>
                 Source Script Reference
               </h4>
               <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
-                {/* Cập nhật font màu trắng và kích thước nhỏ hơn */}
                 <div className="text-sm md:text-base font-normal leading-relaxed text-white bg-orange-600/10 p-6 rounded-3xl border border-orange-500/20 whitespace-pre-wrap selection:bg-white selection:text-orange-600">
                     {result.originalText}
                 </div>
               </div>
               <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-mono text-slate-600 uppercase tracking-widest">
                 <span>Verification ID: {result.timestamp}</span>
-                <span>Rendered with Gemini 2.5 Flash News Engine</span>
+                <span>Rendered with Gemini 2.5 Flash News Engine v12.6</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Invisible Notify Audio */}
       <audio ref={notifyAudioRef} className="hidden" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
 
       <style>{`
