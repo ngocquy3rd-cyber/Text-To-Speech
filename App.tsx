@@ -126,7 +126,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.4
+          US News Broadcaster System v12.5
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
@@ -308,7 +308,8 @@ const App: React.FC = () => {
                 Source Script Reference
               </h4>
               <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
-                <div className="text-xl md:text-2xl font-medium leading-relaxed text-orange-500 bg-orange-500/5 p-6 rounded-3xl border border-orange-500/10 whitespace-pre-wrap selection:bg-white selection:text-orange-600">
+                {/* Cập nhật font màu trắng và kích thước nhỏ hơn */}
+                <div className="text-sm md:text-base font-normal leading-relaxed text-white bg-orange-600/10 p-6 rounded-3xl border border-orange-500/20 whitespace-pre-wrap selection:bg-white selection:text-orange-600">
                     {result.originalText}
                 </div>
               </div>
