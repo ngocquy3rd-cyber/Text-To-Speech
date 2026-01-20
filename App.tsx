@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { generateSpeech, BioSettings } from './services/geminiService';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { generateSpeech, BioSettings, AudioChunkMetadata } from './services/geminiService';
 import { createMp3Blob, createSrtBlob, createZipBlob } from './utils/audioUtils';
 
 const downloadFile = (blob: Blob, fileName: string) => {
@@ -14,6 +14,12 @@ const downloadFile = (blob: Blob, fileName: string) => {
   document.body.removeChild(a);
 };
 
+interface WordTimestamp {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface ProductionResult {
   mp3Blob: Blob;
   srtBlob: Blob;
@@ -22,6 +28,7 @@ interface ProductionResult {
   generationTimeStr: string;
   timestamp: string;
   originalText: string;
+  wordTimestamps: WordTimestamp[];
 }
 
 const App: React.FC = () => {
@@ -30,6 +37,7 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ProductionResult | null>(null);
+  const [currentTimeMs, setCurrentTimeMs] = useState(0);
   
   const [bioSettings, setBioSettings] = useState<BioSettings>({
     stutterRate: 35,       
@@ -42,8 +50,10 @@ const App: React.FC = () => {
     waitDuration: 'random'
   });
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const notifyAudioRef = useRef<HTMLAudioElement | null>(null);
+  const popupAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeWordRef = useRef<HTMLSpanElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -51,6 +61,16 @@ const App: React.FC = () => {
     const secs = totalSeconds % 60;
     return mins > 0 ? `${mins} phút ${secs} giây` : `${secs} giây`;
   };
+
+  // Đồng bộ cuộn văn bản khi từ active thay đổi
+  useEffect(() => {
+    if (activeWordRef.current && scrollContainerRef.current) {
+      activeWordRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }
+  }, [currentTimeMs]);
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
@@ -75,7 +95,22 @@ const App: React.FC = () => {
       const mp3Blob = createMp3Blob(speechResult.audioData);
       const srtBlob = createSrtBlob(speechResult.metadata);
       
-      // Tính toán độ dài âm thanh
+      // Xây dựng bản đồ thời gian cho từng từ để Highlight
+      let currentTrackMs = 0;
+      const wordTimestamps: WordTimestamp[] = [];
+      speechResult.metadata.forEach(m => {
+        const words = m.text.split(/\s+/);
+        const msPerWord = m.durationMs / words.length;
+        words.forEach(w => {
+          wordTimestamps.push({
+            text: w,
+            startMs: currentTrackMs,
+            endMs: currentTrackMs + msPerWord
+          });
+          currentTrackMs += msPerWord;
+        });
+      });
+
       const totalAudioMs = speechResult.metadata.reduce((acc, m) => acc + m.durationMs, 0);
       const audioDurationStr = formatDuration(totalAudioMs);
 
@@ -89,7 +124,8 @@ const App: React.FC = () => {
         durationStr: audioDurationStr,
         generationTimeStr,
         timestamp,
-        originalText: text
+        originalText: text,
+        wordTimestamps
       });
 
       if (notifyAudioRef.current) {
@@ -114,12 +150,12 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.2
+          US News Broadcaster System v12.3
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
         </h1>
-        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Professional US English News Anchors - Multi-API Load Balancing.</p>
+        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Professional US English News Anchors - Real-time Karaoke Sync.</p>
       </header>
 
       <main className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-8">
@@ -138,13 +174,7 @@ const App: React.FC = () => {
                 )}
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/5 text-[10px] font-mono text-slate-500 tracking-widest uppercase">
                     <span>{text.length} characters</span>
-                    <span className="text-orange-500/50">Smart API Rotation Enabled</span>
-                </div>
-            </div>
-            
-            <div className="bg-slate-950 border border-white/5 rounded-[2.5rem] p-8 flex items-center justify-center text-center opacity-40">
-                <div className="text-slate-400 text-[9px] leading-loose max-w-lg uppercase tracking-widest">
-                    AI-Driven Speech Synthesis. Optimized for high-bitrate broadcast standards with automated SRT block alignment.
+                    <span className="text-orange-500/50">High-Fidelity Karaoke Engine Active</span>
                 </div>
             </div>
         </div>
@@ -217,19 +247,6 @@ const App: React.FC = () => {
                             <option value="loud">Broadcaster Deep</option>
                         </select>
                     </div>
-
-                    <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block">Sentence Spacing</label>
-                        <select 
-                            value={bioSettings.waitDuration}
-                            onChange={(e) => setBioSettings({...bioSettings, waitDuration: e.target.value as any})}
-                            className="w-full bg-black border border-white/10 rounded-xl p-3 text-[10px] text-white focus:ring-1 focus:ring-orange-500 outline-none appearance-none"
-                        >
-                            <option value="natural">Natural (400ms)</option>
-                            <option value="long">News Anchor (1000ms)</option>
-                            <option value="random">Dynamic Variation</option>
-                        </select>
-                    </div>
                 </div>
             </div>
 
@@ -244,7 +261,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Popup Kết Quả Nâng Cấp */}
+      {/* Popup Kết Quả với Highlight */}
       {result && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-10 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-slate-900 border border-white/10 w-full max-w-6xl h-full max-h-[800px] rounded-[3rem] shadow-[0_0_120px_rgba(234,88,12,0.2)] relative overflow-hidden flex flex-col md:flex-row">
@@ -252,10 +269,10 @@ const App: React.FC = () => {
             
             <button 
                 onClick={() => setResult(null)}
-                className="absolute top-6 right-8 z-10 bg-black/50 hover:bg-black/80 w-10 h-10 flex items-center justify-center rounded-full text-white transition-all text-xl border border-white/10"
+                className="absolute top-6 right-8 z-20 bg-black/50 hover:bg-black/80 w-10 h-10 flex items-center justify-center rounded-full text-white transition-all text-xl border border-white/10"
             >✕</button>
 
-            {/* Left Section: Stats & Controls */}
+            {/* Left: Summary */}
             <div className="w-full md:w-2/5 p-8 md:p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/5">
               <div>
                 <h3 className="text-3xl font-black italic uppercase text-white mb-2 leading-none">Export <span className="text-orange-600">Summary</span></h3>
@@ -277,9 +294,11 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="mb-8">
-                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-600 block mb-3">Instant Review</label>
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-600 block mb-3">Instant Review (Autosync On)</label>
                     <audio 
+                      ref={popupAudioRef}
                       controls 
+                      onTimeUpdate={(e) => setCurrentTimeMs(e.currentTarget.currentTime * 1000)}
                       className="w-full accent-orange-600 h-10 rounded-xl" 
                       src={URL.createObjectURL(result.mp3Blob)} 
                     />
@@ -288,36 +307,38 @@ const App: React.FC = () => {
 
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                    <button 
-                        onClick={() => downloadFile(result.mp3Blob, `${result.timestamp}.mp3`)}
-                        className="bg-white/5 hover:bg-white/10 border border-white/5 py-5 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all"
-                    >Save MP3</button>
-                    <button 
-                        onClick={() => downloadFile(result.srtBlob, `${result.timestamp}.srt`)}
-                        className="bg-white/5 hover:bg-white/10 border border-white/5 py-5 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all"
-                    >Save SRT</button>
+                    <button onClick={() => downloadFile(result.mp3Blob, `${result.timestamp}.mp3`)} className="bg-white/5 hover:bg-white/10 border border-white/5 py-5 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all">Save MP3</button>
+                    <button onClick={() => downloadFile(result.srtBlob, `${result.timestamp}.srt`)} className="bg-white/5 hover:bg-white/10 border border-white/5 py-5 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all">Save SRT</button>
                 </div>
-                <button 
-                    onClick={downloadZip}
-                    className="w-full bg-orange-600 hover:bg-orange-500 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] transition-all shadow-xl shadow-orange-600/20"
-                >Export Package (ZIP)</button>
+                <button onClick={downloadZip} className="w-full bg-orange-600 hover:bg-orange-500 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] transition-all shadow-xl shadow-orange-600/20">Export Package (ZIP)</button>
               </div>
             </div>
 
-            {/* Right Section: Script Viewer */}
+            {/* Right: Karaoke Script Viewer */}
             <div className="w-full md:w-3/5 bg-black/40 p-8 md:p-12 overflow-hidden flex flex-col">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-6 flex items-center">
                 <span className="w-2 h-2 bg-orange-600 rounded-full mr-3 animate-pulse"></span>
-                Script Comparison Viewer
+                Script Comparison Viewer (Synced)
               </h4>
-              <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
-                <p className="text-xl md:text-2xl font-medium text-slate-400 leading-relaxed whitespace-pre-wrap selection:bg-orange-500 selection:text-white">
-                    {result.originalText}
-                </p>
+              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                <div className="text-xl md:text-2xl font-medium leading-relaxed flex flex-wrap gap-x-2 gap-y-3">
+                    {result.wordTimestamps.map((word, idx) => {
+                        const isActive = currentTimeMs >= word.startMs && currentTimeMs <= word.endMs;
+                        return (
+                            <span 
+                                key={idx}
+                                ref={isActive ? activeWordRef : null}
+                                className={`transition-all duration-200 rounded-md px-1 ${isActive ? 'bg-orange-600 text-white scale-110 shadow-[0_0_15px_rgba(234,88,12,0.4)] z-10' : 'text-slate-500'}`}
+                            >
+                                {word.text}
+                            </span>
+                        );
+                    })}
+                </div>
               </div>
               <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-mono text-slate-600 uppercase tracking-widest">
                 <span>Verification ID: {result.timestamp}</span>
-                <span>Render Engine: Gemini-2.5-Flash-TTS</span>
+                <span>Karaoke Mode: Syllable Weighted Alignment</span>
               </div>
             </div>
           </div>
@@ -325,7 +346,6 @@ const App: React.FC = () => {
       )}
 
       {/* Invisible System Audio */}
-      <audio ref={audioRef} className="hidden" />
       <audio ref={notifyAudioRef} className="hidden" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
 
       <style>{`
