@@ -30,15 +30,10 @@ export interface GeneratedSpeechResult {
   metadata: AudioChunkMetadata[];
 }
 
+// Danh sách 8 API Key mới cung cấp cho bản v12.7
 const ALL_KEYS = [
   "AIzaSyDlqh2BVvo_qJ8KNcVKiZ-9OdNynnc8884",
-  "AIzaSyCoD2B_VVKzZJCNl-RqBJy6SanQnX2lo0U",
-  "AIzaSyBQIJnnAhffFJi1OMDshziXWIPwdZdWpOA",
-  "AIzaSyDRM25nu8rhmRhDcSXu19_KhYV9UdouL30",
-  "AIzaSyBjERleirTQHkeRexCx779DVtcaIeL1X4s",
-  "AIzaSyBvLjurH8MNnP10lhvaFgOtN-wAh82BV2c",
   "AIzaSyBp-yrKVpHmoXaxz37pMqTjHmGUjTLbDmw",
-  "AIzaSyBpBD-Npf2VGdckZsrq19bsW3MthUN-fi0",
   "AIzaSyCHIfB4f2g_tzX8mYqR0zSYrkGK4vF8P6c",
   "AIzaSyC8ODkt-eweiL9ol-3nLvmyoPmEVifGmHk",
   "AIzaSyBmtmNqfbkBIPCcz_gYiRnTymazGbu0_qE",
@@ -47,14 +42,14 @@ const ALL_KEYS = [
   "AIzaSyCzgdnMJnVKNFEouSdBVRpLJYNMj9UZusk"
 ];
 
-const LAST_KEY_STORAGE = "last_used_gemini_key_v12_6";
+const LAST_KEY_STORAGE = "last_used_gemini_key_v12_7";
 const FAILED_KEYS_IN_SESSION = new Set<string>();
 
 /**
- * Smart API Rotation v12.6:
- * - Loại bỏ key lỗi trong phiên.
- * - Loại bỏ key dùng gần nhất.
- * - Chọn ngẫu nhiên trong phần còn lại.
+ * Smart API Rotation v12.7:
+ * - Ưu tiên các key chưa lỗi.
+ * - Không dùng lại key vừa dùng ở request trước đó.
+ * - Chọn ngẫu nhiên để phân phối tải đều.
  */
 function getSmartApiKey(): string {
   const lastUsed = localStorage.getItem(LAST_KEY_STORAGE);
@@ -93,7 +88,6 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
     
     sentences.forEach((sentence, index) => {
         let processedSentence = sentence.trim();
-        // Giảm tỷ lệ stutter để đảm bảo mô hình tập trung phát âm từ chính xác
         if (Math.random() < (settings.stutterRate / 250)) { 
             const words = processedSentence.split(' ');
             if (words.length > 4) {
@@ -113,7 +107,6 @@ function humanizeText(text: string, settings: BioSettings, personaRate: string):
             pause = `<break time="${waitTime}ms"/>`;
         }
         
-        // Buộc phát âm qua prosody
         richSSML += `${pause}<prosody volume="medium" rate="${randomSpeed}">${processedSentence}</prosody>`;
         plainSynthesized += (plainSynthesized ? " " : "") + processedSentence;
     });
@@ -130,7 +123,7 @@ async function processWithRetry(
     const humanized = humanizeText(chunk, settings, persona.rate);
     const systemPrompt = `YOU ARE A PROFESSIONAL BROADCASTER: ${persona.name}. 
     MANDATORY RULE: Pronounce EVERY SINGLE WORD in the provided text. 
-    DO NOT skip "beautiful", "extraordinary", or any adjectives. 
+    DO NOT skip any adjectives or content. 
     NO SUMMARIZATION. 1:1 TRANSCRIPT TO SPEECH ONLY.
     TEXT: ${humanized.ssml}`;
 
@@ -166,7 +159,7 @@ async function processWithRetry(
         if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("key not valid")) {
             FAILED_KEYS_IN_SESSION.add(currentApiKey);
         }
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 800));
       }
     }
     return null;
@@ -185,7 +178,7 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
     if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 600));
   }
 
-  if (results.length === 0) throw new Error("Broadcast Failed: No available API keys or connection error.");
+  if (results.length === 0) throw new Error("Broadcast Failed: All API keys exhausted or network error. Please check your connections.");
   results.sort((a, b) => a.index - b.index);
   const totalByteLength = results.reduce((acc, r) => acc + r.audio.length, 0);
   const combinedAudio = new Uint8Array(totalByteLength);

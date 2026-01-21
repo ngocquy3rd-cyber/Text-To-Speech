@@ -122,7 +122,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.6
+          US News Broadcaster System v12.7
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
@@ -307,7 +307,7 @@ const App: React.FC = () => {
               </div>
               <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-mono text-slate-600 uppercase tracking-widest">
                 <span>Verification ID: {result.timestamp}</span>
-                <span>Rendered with Gemini 2.5 Flash News Engine v12.6</span>
+                <span>Rendered with Gemini 2.5 Flash News Engine v12.7</span>
               </div>
             </div>
           </div>
