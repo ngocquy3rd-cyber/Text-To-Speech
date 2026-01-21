@@ -30,7 +30,6 @@ export interface GeneratedSpeechResult {
   metadata: AudioChunkMetadata[];
 }
 
-// Danh sách 8 API Key mới cung cấp cho bản v12.7
 const ALL_KEYS = [
   "AIzaSyDlqh2BVvo_qJ8KNcVKiZ-9OdNynnc8884",
   "AIzaSyBp-yrKVpHmoXaxz37pMqTjHmGUjTLbDmw",
@@ -42,24 +41,28 @@ const ALL_KEYS = [
   "AIzaSyCzgdnMJnVKNFEouSdBVRpLJYNMj9UZusk"
 ];
 
-const LAST_KEY_STORAGE = "last_used_gemini_key_v12_7";
-const FAILED_KEYS_IN_SESSION = new Set<string>();
+const LAST_KEY_STORAGE = "last_used_gemini_key_v12_8";
+// Chuyển sang Map để lưu thời điểm Key bị lỗi, cho phép hồi phục sau 45 giây
+const FAILED_KEYS_TIMESTAMP = new Map<string, number>();
+const RECOVERY_TIME_MS = 45000; 
 
-/**
- * Smart API Rotation v12.7:
- * - Ưu tiên các key chưa lỗi.
- * - Không dùng lại key vừa dùng ở request trước đó.
- * - Chọn ngẫu nhiên để phân phối tải đều.
- */
 function getSmartApiKey(): string {
+  const now = Date.now();
   const lastUsed = localStorage.getItem(LAST_KEY_STORAGE);
-  let healthyKeys = ALL_KEYS.filter(k => !FAILED_KEYS_IN_SESSION.has(k));
   
+  // Lọc các key khỏe mạnh (không lỗi hoặc đã quá thời gian hồi phục)
+  let healthyKeys = ALL_KEYS.filter(k => {
+    const errorTime = FAILED_KEYS_TIMESTAMP.get(k);
+    if (!errorTime) return true;
+    return (now - errorTime) > RECOVERY_TIME_MS;
+  });
+  
+  // Nếu tất cả đều "ốm", lấy toàn bộ danh sách để thử vận may
   if (healthyKeys.length === 0) {
-    FAILED_KEYS_IN_SESSION.clear();
     healthyKeys = [...ALL_KEYS];
   }
 
+  // Loại bỏ key vừa dùng ở lần ngay trước đó nếu có thể
   let candidates = healthyKeys.filter(k => k !== lastUsed);
   if (candidates.length === 0) candidates = healthyKeys;
 
@@ -123,11 +126,11 @@ async function processWithRetry(
     const humanized = humanizeText(chunk, settings, persona.rate);
     const systemPrompt = `YOU ARE A PROFESSIONAL BROADCASTER: ${persona.name}. 
     MANDATORY RULE: Pronounce EVERY SINGLE WORD in the provided text. 
-    DO NOT skip any adjectives or content. 
     NO SUMMARIZATION. 1:1 TRANSCRIPT TO SPEECH ONLY.
     TEXT: ${humanized.ssml}`;
 
-    const MAX_ATTEMPTS = 5;
+    // Tăng số lần thử lại lên 10 để bao phủ hết 8 key và có độ trễ
+    const MAX_ATTEMPTS = 10;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const currentApiKey = getSmartApiKey();
       try {
@@ -149,6 +152,10 @@ async function processWithRetry(
         if (!base64Audio) throw new Error("API_NO_DATA");
         
         const audioBytes = base64ToUint8Array(base64Audio);
+        
+        // Thành công: Xóa khỏi danh sách lỗi nếu có
+        FAILED_KEYS_TIMESTAMP.delete(currentApiKey);
+        
         return {
           index,
           audio: audioBytes,
@@ -156,10 +163,14 @@ async function processWithRetry(
         };
       } catch (error: any) {
         const errorMsg = error?.message || "";
-        if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("key not valid")) {
-            FAILED_KEYS_IN_SESSION.add(currentApiKey);
-        }
-        await new Promise(r => setTimeout(r, 800));
+        console.warn(`Attempt ${attempt+1} failed with key ${currentApiKey.substring(0,6)}: ${errorMsg}`);
+        
+        // Đánh dấu lỗi kèm timestamp
+        FAILED_KEYS_TIMESTAMP.set(currentApiKey, Date.now());
+
+        // Nghỉ tăng dần (exponential backoff) để API hồi phục
+        const delay = Math.min(1000 * (attempt + 1), 5000);
+        await new Promise(r => setTimeout(r, delay));
       }
     }
     return null;
@@ -173,12 +184,20 @@ export async function generateSpeech(params: GenerateSpeechParams): Promise<Gene
   for (let i = 0; i < chunks.length; i++) {
     const persona = personas[i % personas.length];
     const res = await processWithRetry(chunks[i], persona, i, params.settings);
-    if (res) results.push(res);
+    
+    if (res) {
+        results.push(res);
+    } else {
+        // Nếu một đoạn thất bại hoàn toàn sau 10 lần thử, chúng ta dừng cả tiến trình
+        throw new Error(`Broadcast Interrupted: Đoạn thứ ${i+1} không thể xử lý sau nhiều lần thử lại. Hãy kiểm tra kết nối mạng hoặc thử lại sau ít phút.`);
+    }
+
     if (params.onProgress) params.onProgress(Math.round(((i + 1) / chunks.length) * 100));
-    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 600));
+    
+    // Nghỉ cố định 1s giữa các đoạn để tránh hit Rate Limit quá nhanh
+    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 1200));
   }
 
-  if (results.length === 0) throw new Error("Broadcast Failed: All API keys exhausted or network error. Please check your connections.");
   results.sort((a, b) => a.index - b.index);
   const totalByteLength = results.reduce((acc, r) => acc + r.audio.length, 0);
   const combinedAudio = new Uint8Array(totalByteLength);

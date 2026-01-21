@@ -100,7 +100,7 @@ const App: React.FC = () => {
       
     } catch (error: any) {
       console.error(error);
-      setErrorMsg(error.message || "Lỗi: Không thể tạo âm thanh. Vui lòng kiểm tra lại API Keys.");
+      setErrorMsg(error.message || "Lỗi: Không thể hoàn tất bản tin. Hệ thống API đang quá tải, vui lòng thử lại sau 30-60 giây.");
     } finally {
       setIsGenerating(false);
     }
@@ -122,12 +122,12 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#050505] text-slate-100 p-4 md:p-10 font-sans selection:bg-orange-500/30 relative">
       <header className="mb-12 text-center max-w-4xl mx-auto">
         <div className="inline-block px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-orange-400 text-[10px] font-bold tracking-[0.4em] uppercase mb-4">
-          US News Broadcaster System v12.7
+          US News Broadcaster System v12.8
         </div>
         <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic">
           Anchor<span className="text-orange-600">Sync</span>
         </h1>
-        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Multi-API Smart Load Balancing - Professional Production.</p>
+        <p className="text-slate-500 mt-2 font-mono text-xs uppercase tracking-widest italic">Multi-API Smart Load Balancing & Auto-Recovery.</p>
       </header>
 
       <main className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-8">
@@ -140,13 +140,13 @@ const App: React.FC = () => {
                     onChange={(e) => setText(e.target.value)}
                 />
                 {errorMsg && (
-                  <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-mono uppercase tracking-wider">
+                  <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-mono uppercase tracking-wider animate-pulse">
                     {errorMsg}
                   </div>
                 )}
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/5 text-[10px] font-mono text-slate-500 tracking-widest uppercase">
                     <span>{text.length} characters</span>
-                    <span className="text-orange-500/50">100% Word Retention Mode Active</span>
+                    <span className="text-orange-500/50">Smart Failover v12.8 Active</span>
                 </div>
             </div>
         </div>
@@ -241,7 +241,7 @@ const App: React.FC = () => {
                 className={`w-full py-8 rounded-[2.5rem] font-black uppercase tracking-[0.8em] text-xs transition-all shadow-2xl relative overflow-hidden group ${isGenerating ? 'bg-slate-900 text-slate-700 cursor-wait' : 'bg-orange-600 text-white hover:bg-orange-500 hover:scale-[1.01] active:scale-[0.99]'}`}
             >
                 <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform"></div>
-                <span className="relative z-10">{isGenerating ? `Encoding ${progress}%` : 'Broadcast Sequence'}</span>
+                <span className="relative z-10">{isGenerating ? `Broadcasting ${progress}%` : 'Initiate Broadcast'}</span>
             </button>
         </div>
       </main>
@@ -307,7 +307,7 @@ const App: React.FC = () => {
               </div>
               <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-mono text-slate-600 uppercase tracking-widest">
                 <span>Verification ID: {result.timestamp}</span>
-                <span>Rendered with Gemini 2.5 Flash News Engine v12.7</span>
+                <span>Rendered with Gemini 2.5 Flash News Engine v12.8</span>
               </div>
             </div>
           </div>
